@@ -1,0 +1,1058 @@
+From df44ea9598a6532979ff8d85f8db08bd641bb512 Mon Sep 17 00:00:00 2001
+From: Sergey Smirnov <89378719+sergey-grovety@users.noreply.github.com>
+Date: Tue, 29 Oct 2024 22:44:11 +0300
+Subject: [PATCH] Add LLM use case + YoloX model
+
+---
+ resources/llm/labels/labels_yolox.txt         |  80 +++++
+ scripts/py/use_case_resources.json            |  12 +
+ .../api/use_case/llm/CMakeLists.txt           |  39 +++
+ .../api/use_case/llm/include/YoloXModel.hpp   |  51 +++
+ .../use_case/llm/include/YoloXProcessing.hpp  |  56 ++++
+ .../api/use_case/llm/src/YoloXModel.cc        |  47 +++
+ .../api/use_case/llm/src/YoloXProcessing.cc   | 294 ++++++++++++++++++
+ source/use_case/llm/include/InputFiles.hpp    |   1 +
+ .../use_case/llm/include/UseCaseHandler.hpp   |  49 +++
+ source/use_case/llm/src/MainLoop.cc           |  86 +++++
+ source/use_case/llm/src/UseCaseHandler.cc     | 143 +++++++++
+ source/use_case/llm/usecase.cmake             |  73 +++++
+ source/use_case/usecase-preset.json           |   1 +
+ 13 files changed, 932 insertions(+)
+ create mode 100644 resources/llm/labels/labels_yolox.txt
+ create mode 100644 source/application/api/use_case/llm/CMakeLists.txt
+ create mode 100644 source/application/api/use_case/llm/include/YoloXModel.hpp
+ create mode 100644 source/application/api/use_case/llm/include/YoloXProcessing.hpp
+ create mode 100644 source/application/api/use_case/llm/src/YoloXModel.cc
+ create mode 100644 source/application/api/use_case/llm/src/YoloXProcessing.cc
+ create mode 100644 source/use_case/llm/include/InputFiles.hpp
+ create mode 100644 source/use_case/llm/include/UseCaseHandler.hpp
+ create mode 100644 source/use_case/llm/src/MainLoop.cc
+ create mode 100644 source/use_case/llm/src/UseCaseHandler.cc
+ create mode 100644 source/use_case/llm/usecase.cmake
+
+diff --git a/resources/llm/labels/labels_yolox.txt b/resources/llm/labels/labels_yolox.txt
+new file mode 100644
+index 0000000..1f42c8e
+--- /dev/null
++++ b/resources/llm/labels/labels_yolox.txt
+@@ -0,0 +1,80 @@
++person
++bicycle
++car
++motorcycle
++airplane
++bus
++train
++truck
++boat
++traffic light
++fire hydrant
++stop sign
++parking meter
++bench
++bird
++cat
++dog
++horse
++sheep
++cow
++elephant
++bear
++zebra
++giraffe
++backpack
++umbrella
++handbag
++tie
++suitcase
++frisbee
++skis
++snowboard
++sports ball
++kite
++baseball bat
++baseball glove
++skateboard
++surfboard
++tennis racket
++bottle
++wine glass
++cup
++fork
++knife
++spoon
++bowl
++banana
++apple
++sandwich
++orange
++broccoli
++carrot
++hot dog
++pizza
++donut
++cake
++chair
++couch
++potted plant
++bed
++dining table
++toilet
++tv
++laptop
++mouse
++remote
++keyboard
++cell phone
++microwave
++oven
++toaster
++sink
++refrigerator
++book
++clock
++vase
++scissors
++teddy bear
++hair drier
++toothbrush
+\ No newline at end of file
+diff --git a/scripts/py/use_case_resources.json b/scripts/py/use_case_resources.json
+index a478c49..8be317c 100644
+--- a/scripts/py/use_case_resources.json
++++ b/scripts/py/use_case_resources.json
+@@ -73,6 +73,18 @@
+       }
+     ]
+   },
++  {
++    "name": "llm",
++    "url_prefix": [
++      "https://raw.githubusercontent.com/sergio-grovety/models/refs/heads/main/"
++    ],
++    "resources": [
++      {
++        "name": "yolox_nano_ti_lite_full_integer_quant.tflite",
++        "url": "{url_prefix:0}yolox_nano_ti_lite_full_integer_quant.tflite"
++      }
++    ]
++  },
+   {
+     "name": "object_detection",
+     "url_prefix": [
+diff --git a/source/application/api/use_case/llm/CMakeLists.txt b/source/application/api/use_case/llm/CMakeLists.txt
+new file mode 100644
+index 0000000..6167809
+--- /dev/null
++++ b/source/application/api/use_case/llm/CMakeLists.txt
+@@ -0,0 +1,39 @@
++#----------------------------------------------------------------------------
++#  SPDX-FileCopyrightText: Copyright 2022 Arm Limited and/or its affiliates <open-source-office@arm.com>
++#  SPDX-License-Identifier: Apache-2.0
++#
++#  Licensed under the Apache License, Version 2.0 (the "License");
++#  you may not use this file except in compliance with the License.
++#  You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++#  Unless required by applicable law or agreed to in writing, software
++#  distributed under the License is distributed on an "AS IS" BASIS,
++#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++#  See the License for the specific language governing permissions and
++#  limitations under the License.
++#----------------------------------------------------------------------------
++#########################################################
++#                LLM API library                  #
++#########################################################
++cmake_minimum_required(VERSION 3.21.0)
++
++set(LLM_API_TARGET llm_api)
++project(${LLM_API_TARGET}
++        DESCRIPTION     "LLM use case API library"
++        LANGUAGES       C CXX)
++
++# Create static library
++add_library(${LLM_API_TARGET} STATIC
++    src/YoloXProcessing.cc
++    src/YoloXModel.cc)
++
++target_include_directories(${LLM_API_TARGET} PUBLIC include)
++
++target_link_libraries(${LLM_API_TARGET} PUBLIC common_api)
++
++message(STATUS "*******************************************************")
++message(STATUS "Library                                : " ${LLM_API_TARGET})
++message(STATUS "CMAKE_SYSTEM_PROCESSOR                 : " ${CMAKE_SYSTEM_PROCESSOR})
++message(STATUS "*******************************************************")
+diff --git a/source/application/api/use_case/llm/include/YoloXModel.hpp b/source/application/api/use_case/llm/include/YoloXModel.hpp
+new file mode 100644
+index 0000000..cdc7cbd
+--- /dev/null
++++ b/source/application/api/use_case/llm/include/YoloXModel.hpp
+@@ -0,0 +1,51 @@
++/*
++ * SPDX-FileCopyrightText: Copyright 2021 Arm Limited and/or its affiliates <open-source-office@arm.com>
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#ifndef LLM_YOLOXMODEL_HPP
++#define LLM_YOLOXMODEL_HPP
++
++#include "Model.hpp"
++
++namespace arm {
++namespace app {
++
++    class YoloXModel : public Model {
++
++    public:
++        /* Indices for the expected model - based on input tensor shape */
++        static constexpr uint32_t ms_inputRowsIdx     = 1;
++        static constexpr uint32_t ms_inputColsIdx     = 2;
++        static constexpr uint32_t ms_inputChannelsIdx = 3;
++
++    protected:
++        /** @brief   Gets the reference to op resolver interface class. */
++        const tflite::MicroOpResolver& GetOpResolver() override;
++
++        /** @brief   Adds operations to the op resolver instance. */
++        bool EnlistOperations() override;
++
++    private:
++        /* Maximum number of individual operations that can be enlisted. */
++        static constexpr int ms_maxOpCnt = 9;
++
++        /* A mutable op resolver instance. */
++        tflite::MicroMutableOpResolver<ms_maxOpCnt> m_opResolver;
++    };
++
++} /* namespace app */
++} /* namespace arm */
++
++#endif /* LLM_YOLOXMODEL_HPP */
+diff --git a/source/application/api/use_case/llm/include/YoloXProcessing.hpp b/source/application/api/use_case/llm/include/YoloXProcessing.hpp
+new file mode 100644
+index 0000000..6d0bfca
+--- /dev/null
++++ b/source/application/api/use_case/llm/include/YoloXProcessing.hpp
+@@ -0,0 +1,56 @@
++/*
++ * SPDX-FileCopyrightText: Copyright 2022 Arm Limited and/or its affiliates <open-source-office@arm.com>
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#ifndef YOLOX_PROCESSING_HPP
++#define YOLOX_PROCESSING_HPP
++
++#include "BaseProcessing.hpp"
++#include "Classifier.hpp"
++
++namespace arm {
++namespace app {
++
++    class YoloXPreProcess : public BasePreProcess {
++    public:
++        explicit YoloXPreProcess(TfLiteTensor* inputTensor, bool convertToInt8);
++        bool DoPreProcess(const void* input, size_t inputSize) override;
++
++    private:
++        TfLiteTensor* m_inputTensor;
++        bool m_convertToInt8;
++    };
++
++
++    class YoloXPostProcess : public BasePostProcess {
++
++    public:
++        YoloXPostProcess(TfLiteTensor* outputTensor, Classifier& classifier,
++                            const std::vector<std::string>& labels,
++                            std::vector<ClassificationResult>& results);
++
++        bool DoPostProcess() override;
++
++    private:
++        TfLiteTensor* m_outputTensor;
++        Classifier& m_imgClassifier;
++        const std::vector<std::string>& m_labels;
++        std::vector<ClassificationResult>& m_results;
++    };
++
++} /* namespace app */
++} /* namespace arm */
++
++#endif /* #define YOLOX_PROCESSING_HPP */
+\ No newline at end of file
+diff --git a/source/application/api/use_case/llm/src/YoloXModel.cc b/source/application/api/use_case/llm/src/YoloXModel.cc
+new file mode 100644
+index 0000000..e982647
+--- /dev/null
++++ b/source/application/api/use_case/llm/src/YoloXModel.cc
+@@ -0,0 +1,47 @@
++/*
++ * SPDX-FileCopyrightText: Copyright 2021 Arm Limited and/or its affiliates <open-source-office@arm.com>
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#include "YoloXModel.hpp"
++#include "log_macros.h"
++
++const tflite::MicroOpResolver& arm::app::YoloXModel::GetOpResolver()
++{
++    return this->m_opResolver;
++}
++
++bool arm::app::YoloXModel::EnlistOperations()
++{
++#ifndef ETHOS_U_NPU_ASSUMED
++    this->m_opResolver.AddPad();
++    this->m_opResolver.AddConv2D();
++    this->m_opResolver.AddAdd();
++    this->m_opResolver.AddConcatenation();
++    this->m_opResolver.AddMaxPool2D();
++    this->m_opResolver.AddResizeNearestNeighbor();
++    this->m_opResolver.AddLogistic();
++    this->m_opResolver.AddQuantize();
++    this->m_opResolver.AddTranspose();
++#endif
++
++    if (kTfLiteOk == this->m_opResolver.AddEthosU()) {
++        info("Added %s support to op resolver\n",
++            tflite::GetString_ETHOSU());
++    } else {
++        printf_err("Failed to add Arm NPU support to op resolver.");
++        return false;
++    }
++    return true;
++}
+diff --git a/source/application/api/use_case/llm/src/YoloXProcessing.cc b/source/application/api/use_case/llm/src/YoloXProcessing.cc
+new file mode 100644
+index 0000000..60fc9c9
+--- /dev/null
++++ b/source/application/api/use_case/llm/src/YoloXProcessing.cc
+@@ -0,0 +1,294 @@
++/*
++ * SPDX-FileCopyrightText: Copyright 2022 Arm Limited and/or its affiliates <open-source-office@arm.com>
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#include "YoloXProcessing.hpp"
++
++#include "ImageUtils.hpp"
++#include "log_macros.h"
++
++#define YOLOX_NMS_THRESH  0.45 // nms threshold
++#define YOLOX_CONF_THRESH 0.25 // threshold of bounding box prob
++#define YOLOX_TARGET_SIZE 416  // target image size after resize, might use 416 for small model
++
++#define IMG_WIDTH 416
++#define IMG_HEIGHT 416
++
++
++namespace arm {
++namespace app {
++
++    struct Rect
++    {
++        float width;
++        float height;
++        float x;
++        float y;
++    };
++
++    struct Object
++    {
++        Rect rect;
++        int label;
++        float prob;
++    };
++
++    struct GridAndStride
++    {
++        int grid0;
++        int grid1;
++        int stride;
++    };
++
++
++    static void generate_grids_and_stride(const int target_size, std::vector<int>& strides, std::vector<GridAndStride>& grid_strides)
++    {
++        for (int i = 0; i < (int)strides.size(); i++)
++        {
++            int stride = strides[i];
++            int num_grid = target_size / stride;
++            for (int g1 = 0; g1 < num_grid; g1++)
++            {
++                for (int g0 = 0; g0 < num_grid; g0++)
++                {
++                    GridAndStride gs;
++                    gs.grid0 = g0;
++                    gs.grid1 = g1;
++                    gs.stride = stride;
++                    grid_strides.push_back(gs);
++                }
++            }
++        }
++    }
++
++    inline float dequantize(int8_t val, float scale, int offset)
++    {
++        return scale * ((float)val - offset);
++    }
++
++
++    static void generate_yolox_proposals(const std::vector<GridAndStride>& grid_strides, TfLiteTensor* tensor, float prob_threshold, std::vector<Object>& objects)
++    {
++        const int num_class = 80; // tensor->dims[2] - 5;
++        const int8_t* feat_ptr = tflite::GetTensorData<int8_t>(tensor);
++        float scale = tensor->params.scale;
++        int offset = tensor->params.zero_point;
++
++        for (size_t anchor_idx = 0; anchor_idx < grid_strides.size(); anchor_idx++)
++        {
++            const int grid0 = grid_strides[anchor_idx].grid0;
++            const int grid1 = grid_strides[anchor_idx].grid1;
++            const int stride = grid_strides[anchor_idx].stride;
++
++            float w = exp(dequantize(feat_ptr[2], scale, offset)) * stride;
++            float h = exp(dequantize(feat_ptr[3], scale, offset)) * stride;
++            float x_center = (dequantize(feat_ptr[0], scale, offset) + grid0) * stride;
++            float y_center = (dequantize(feat_ptr[1], scale, offset) + grid1) * stride;
++
++            float box_objectness = dequantize(feat_ptr[4], scale, offset);
++            for (int class_idx = 0; class_idx < num_class; class_idx++)
++            {
++                float box_cls_score = dequantize(feat_ptr[5 + class_idx], scale, offset);
++                float box_prob = box_objectness * box_cls_score;
++                if (box_prob > prob_threshold)
++                {
++                    Object obj;
++                    obj.rect.x = x_center - w * 0.5f;;
++                    obj.rect.y = y_center - h * 0.5f;
++                    obj.rect.width = w;
++                    obj.rect.height = h;
++                    obj.label = class_idx;
++                    obj.prob = box_prob;
++
++                    objects.push_back(obj);
++                }
++
++            } // class loop
++            feat_ptr += 85; // tensor->dims[2];
++
++        } // point anchor loop
++    }
++
++    static void qsort_descent_inplace(std::vector<Object>& faceobjects, int left, int right)
++    {
++        int i = left;
++        int j = right;
++        float p = faceobjects[(left + right) / 2].prob;
++
++        while (i <= j)
++        {
++            while (faceobjects[i].prob > p)
++                i++;
++
++            while (faceobjects[j].prob < p)
++                j--;
++
++            if (i <= j)
++            {
++                // swap
++                std::swap(faceobjects[i], faceobjects[j]);
++
++                i++;
++                j--;
++            }
++        }
++
++        if (left < j)
++            qsort_descent_inplace(faceobjects, left, j);
++
++        if (i < right)
++            qsort_descent_inplace(faceobjects, i, right);
++    }
++
++    static void qsort_descent_inplace(std::vector<Object>& objects)
++    {
++        if (objects.empty())
++            return;
++
++        qsort_descent_inplace(objects, 0, objects.size() - 1);
++    }
++
++    static inline float intersection_area(const Object& a, const Object& b)
++    {
++        float x0 = std::max(a.rect.x, b.rect.x);
++        float x1 = std::min(a.rect.x + a.rect.width, b.rect.x + b.rect.width);
++        float y0 = std::max(a.rect.y, b.rect.y);
++        float y1 = std::min(a.rect.y + a.rect.height, b.rect.y + b.rect.height);
++        if (x1 > x0 && y1 > y0)
++            return (x1 - x0) * (y1 - y0);
++        return 0;
++    }
++
++    static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vector<int>& picked, float nms_threshold)
++    {
++        picked.clear();
++
++        const int n = faceobjects.size();
++
++        std::vector<float> areas(n);
++        for (int i = 0; i < n; i++)
++        {
++            areas[i] = faceobjects[i].rect.width * faceobjects[i].rect.height;
++        }
++
++        for (int i = 0; i < n; i++)
++        {
++            const Object& a = faceobjects[i];
++
++            int keep = 1;
++            for (int j = 0; j < (int)picked.size(); j++)
++            {
++                const Object& b = faceobjects[picked[j]];
++
++                // intersection over union
++                float inter_area = intersection_area(a, b);
++                float union_area = areas[i] + areas[picked[j]] - inter_area;
++                // float IoU = inter_area / union_area
++                if (inter_area / union_area > nms_threshold)
++                    keep = 0;
++            }
++
++            if (keep)
++                picked.push_back(i);
++        }
++    }
++
++    YoloXPreProcess::YoloXPreProcess(TfLiteTensor* inputTensor, bool convertToInt8)
++    :m_inputTensor{inputTensor},
++     m_convertToInt8{convertToInt8}
++    {}
++
++    bool YoloXPreProcess::DoPreProcess(const void* data, size_t inputSize)
++    {
++        if (data == nullptr) {
++            printf_err("Data pointer is null");
++            return false;
++        }
++
++        auto input = static_cast<const uint8_t*>(data);
++
++        std::memcpy(this->m_inputTensor->data.data, input, inputSize);
++        debug("Input tensor populated \n");
++
++        if (this->m_convertToInt8) {
++            image::ConvertImgToInt8(this->m_inputTensor->data.data, this->m_inputTensor->bytes);
++        }
++
++        return true;
++    }
++
++    YoloXPostProcess::YoloXPostProcess(TfLiteTensor* outputTensor, Classifier& classifier,
++                                             const std::vector<std::string>& labels,
++                                             std::vector<ClassificationResult>& results)
++            :m_outputTensor{outputTensor},
++             m_imgClassifier{classifier},
++             m_labels{labels},
++             m_results{results}
++    {}
++
++    bool YoloXPostProcess::DoPostProcess()
++    {
++        static const int stride_arr[] = {8, 16, 32}; // might have stride=64 in YOLOX
++        std::vector<int> strides(stride_arr, stride_arr + sizeof(stride_arr) / sizeof(stride_arr[0]));
++        std::vector<GridAndStride> grid_strides;
++        std::vector<Object> proposals;
++
++        generate_grids_and_stride(YOLOX_TARGET_SIZE, strides, grid_strides);
++        generate_yolox_proposals(grid_strides, m_outputTensor, YOLOX_CONF_THRESH, proposals);
++
++        qsort_descent_inplace(proposals);
++
++        std::vector<int> picked;
++        nms_sorted_bboxes(proposals, picked, YOLOX_NMS_THRESH);
++
++        int count = picked.size();
++
++        std::vector<Object> objects;
++        objects.resize(count);
++        const float scale = 1.0f;
++
++        m_results.resize(count);
++
++        for (int i = 0; i < count; i++)
++        {
++            objects[i] = proposals[picked[i]];
++
++            // adjust offset to original unpadded
++            float x0 = (objects[i].rect.x) / scale;
++            float y0 = (objects[i].rect.y) / scale;
++            float x1 = (objects[i].rect.x + objects[i].rect.width) / scale;
++            float y1 = (objects[i].rect.y + objects[i].rect.height) / scale;
++
++            // clip
++            x0 = std::max(std::min(x0, (float)(IMG_WIDTH - 1)), 0.f);
++            y0 = std::max(std::min(y0, (float)(IMG_HEIGHT - 1)), 0.f);
++            x1 = std::max(std::min(x1, (float)(IMG_WIDTH - 1)), 0.f);
++            y1 = std::max(std::min(y1, (float)(IMG_HEIGHT - 1)), 0.f);
++
++            objects[i].rect.x = x0;
++            objects[i].rect.y = y0;
++            objects[i].rect.width = x1 - x0;
++            objects[i].rect.height = y1 - y0;
++
++            m_results[i].m_normalisedVal = objects[i].prob;
++            m_results[i].m_label = m_labels[objects[i].label];
++            m_results[i].m_labelIdx = objects[i].label;
++        }
++
++        return true;
++    }
++
++} /* namespace app */
++} /* namespace arm */
+\ No newline at end of file
+diff --git a/source/use_case/llm/include/InputFiles.hpp b/source/use_case/llm/include/InputFiles.hpp
+new file mode 100644
+index 0000000..71c1b98
+--- /dev/null
++++ b/source/use_case/llm/include/InputFiles.hpp
+@@ -0,0 +1 @@
++#define NUMBER_OF_FILES 0
+diff --git a/source/use_case/llm/include/UseCaseHandler.hpp b/source/use_case/llm/include/UseCaseHandler.hpp
+new file mode 100644
+index 0000000..f80c46c
+--- /dev/null
++++ b/source/use_case/llm/include/UseCaseHandler.hpp
+@@ -0,0 +1,49 @@
++/* This file was ported to work on Alif Semiconductor Ensemble family of devices. */
++
++/* Copyright (C) 2023 Alif Semiconductor - All Rights Reserved.
++ * Use, distribution and modification of this code is permitted under the
++ * terms stated in the Alif Semiconductor Software License Agreement
++ *
++ * You should have received a copy of the Alif Semiconductor Software
++ * License Agreement with this file. If not, please write to:
++ * contact@alifsemi.com, or visit: https://alifsemi.com/license
++ *
++ */
++
++/*
++ * Copyright (c) 2021 Arm Limited. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#ifndef LLM_EVT_HANDLER_HPP
++#define LLM_EVT_HANDLER_HPP
++
++#include "AppContext.hpp"
++
++namespace alif {
++namespace app {
++
++    bool ClassifyImageInit();
++
++    /**
++     * @brief       Handles the inference event.
++     * @param[in]   ctx        Pointer to the application context.
++     * @return      true or false based on execution success.
++     **/
++    bool ClassifyImageHandler(arm::app::ApplicationContext& ctx);
++
++} /* namespace app */
++} /* namespace alif */
++
++#endif /* LLM_EVT_HANDLER_HPP */
+diff --git a/source/use_case/llm/src/MainLoop.cc b/source/use_case/llm/src/MainLoop.cc
+new file mode 100644
+index 0000000..01259cb
+--- /dev/null
++++ b/source/use_case/llm/src/MainLoop.cc
+@@ -0,0 +1,86 @@
++/* This file was ported to work on Alif Semiconductor Ensemble family of devices. */
++
++/* Copyright (C) 2023 Alif Semiconductor - All Rights Reserved.
++ * Use, distribution and modification of this code is permitted under the
++ * terms stated in the Alif Semiconductor Software License Agreement
++ *
++ * You should have received a copy of the Alif Semiconductor Software
++ * License Agreement with this file. If not, please write to:
++ * contact@alifsemi.com, or visit: https://alifsemi.com/license
++ *
++ */
++
++/*
++ * Copyright (c) 2021 - 2022 Arm Limited. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#include "hal.h"                    /* Brings in platform definitions. */
++#include "Classifier.hpp"           /* Classifier. */
++#include "Labels.hpp"               /* For label strings. */
++#include "YoloXModel.hpp"           /* Model class for running inference. */
++#include "UseCaseHandler.hpp"       /* Handlers for different user options. */
++#include "UseCaseCommonUtils.hpp"   /* Utils functions. */
++#include "BufAttributes.hpp"        /* Buffer attributes to be applied */
++
++namespace arm {
++namespace app {
++    static uint8_t tensorArena[ACTIVATION_BUF_SZ] ACTIVATION_BUF_ATTRIBUTE;
++    namespace llm {
++        extern uint8_t* GetModelPointer();
++        extern size_t GetModelLen();
++    } /* namespace llm */
++} /* namespace app */
++} /* namespace arm */
++
++using YoloXClassifier = arm::app::Classifier;
++
++void main_loop()
++{
++    init_trigger_rx();
++
++    arm::app::YoloXModel model;  /* Model wrapper object. */
++
++    if (!alif::app::ClassifyImageInit()) {
++        printf_err("Failed to initialise use case handler\n");
++    }
++
++    /* Load the model. */
++    if (!model.Init(arm::app::tensorArena,
++                    sizeof(arm::app::tensorArena),
++                    arm::app::llm::GetModelPointer(),
++                    arm::app::llm::GetModelLen())) {
++        printf_err("Failed to initialise model\n");
++        return;
++    }
++
++    /* Instantiate application context. */
++    arm::app::ApplicationContext caseContext;
++
++    arm::app::Profiler profiler{"llm"};
++    caseContext.Set<arm::app::Profiler&>("profiler", profiler);
++    caseContext.Set<arm::app::Model&>("model", model);
++
++    YoloXClassifier classifier;  /* Classifier wrapper object. */
++    caseContext.Set<arm::app::Classifier&>("classifier", classifier);
++
++    std::vector<std::string> labels;
++    GetLabelsVector(labels);
++    caseContext.Set<const std::vector <std::string>&>("labels", labels);
++
++    /* Loop. */
++    do {
++        alif::app::ClassifyImageHandler(caseContext);
++    } while (1);
++}
+diff --git a/source/use_case/llm/src/UseCaseHandler.cc b/source/use_case/llm/src/UseCaseHandler.cc
+new file mode 100644
+index 0000000..26dbd20
+--- /dev/null
++++ b/source/use_case/llm/src/UseCaseHandler.cc
+@@ -0,0 +1,143 @@
++/* This file was ported to work on Alif Semiconductor Ensemble family of devices. */
++
++/* Copyright (C) 2023 Alif Semiconductor - All Rights Reserved.
++ * Use, distribution and modification of this code is permitted under the
++ * terms stated in the Alif Semiconductor Software License Agreement
++ *
++ * You should have received a copy of the Alif Semiconductor Software
++ * License Agreement with this file. If not, please write to:
++ * contact@alifsemi.com, or visit: https://alifsemi.com/license
++ *
++ */
++
++/*
++ * Copyright (c) 2021-2022 Arm Limited. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++#include "UseCaseHandler.hpp"
++
++#include "Classifier.hpp"
++#include "InputFiles.hpp"
++#include "YoloXModel.hpp"
++#include "ImageUtils.hpp"
++#include "UseCaseCommonUtils.hpp"
++#include "hal.h"
++#include "log_macros.h"
++#include "YoloXProcessing.hpp"
++
++
++#include <cinttypes>
++
++
++
++using YoloXClassifier = arm::app::Classifier;
++
++
++namespace alif {
++namespace app {
++
++    using namespace arm::app;
++
++    bool ClassifyImageInit()
++    {
++        /* Initialise the camera */
++        int err = hal_image_init();
++        if (0 != err) {
++            printf_err("hal_image_init failed with error: %d\n", err);
++        }
++
++        return true;
++    }
++
++    /* Image classification inference handler. */
++    bool ClassifyImageHandler(ApplicationContext& ctx)
++    {
++        auto& profiler = ctx.Get<Profiler&>("profiler");
++        auto& model = ctx.Get<Model&>("model");
++
++        if (!model.IsInited()) {
++            printf_err("Model is not initialised! Terminating processing.\n");
++            return false;
++        }
++
++        TfLiteTensor* inputTensor = model.GetInputTensor(0);
++        TfLiteTensor* outputTensor = model.GetOutputTensor(0);
++        if (!inputTensor->dims) {
++            printf_err("Invalid input tensor dims\n");
++            return false;
++        } else if (inputTensor->dims->size < 4) {
++            printf_err("Input tensor dimension should be = 4\n");
++            return false;
++        }
++
++        /* Get input shape for displaying the image. */
++        TfLiteIntArray* inputShape = model.GetInputShape(0);
++        const uint32_t nCols       = inputShape->data[arm::app::YoloXModel::ms_inputColsIdx];
++        const uint32_t nRows       = inputShape->data[arm::app::YoloXModel::ms_inputRowsIdx];
++
++        /* Set up pre and post-processing. */
++        YoloXPreProcess preProcess = YoloXPreProcess(inputTensor, model.IsDataSigned());
++
++        std::vector<ClassificationResult> results;
++        YoloXPostProcess postProcess = YoloXPostProcess(outputTensor,
++                ctx.Get<YoloXClassifier&>("classifier"), ctx.Get<std::vector<std::string>&>("labels"),
++                results);
++
++        const uint8_t *image_data = hal_get_image_data(nCols, nRows);
++        if (!image_data) {
++            printf_err("hal_get_image_data failed");
++            return false;
++        }
++
++        const size_t imgSz = inputTensor->bytes;
++
++#if SHOW_INF_TIME
++        uint32_t inf_prof = Get_SysTick_Cycle_Count32();
++#endif
++
++        /* Run the pre-processing, inference and post-processing. */
++        if (!preProcess.DoPreProcess(image_data, imgSz)) {
++            printf_err("Pre-processing failed.");
++            return false;
++        }
++
++        if (!RunInference(model, profiler)) {
++            printf_err("Inference failed.");
++            return false;
++        }
++
++        if (!postProcess.DoPostProcess()) {
++            printf_err("Post-processing failed.");
++            return false;
++        }
++
++#if SHOW_INF_TIME
++        inf_prof = Get_SysTick_Cycle_Count32() - inf_prof;
++#endif
++
++        /* Add results to context for access outside handler. */
++        ctx.Set<std::vector<ClassificationResult>>("results", results);
++
++        for (auto result: results) {
++            printf("Detected %s: %f\n", result.m_label.c_str(), result.m_normalisedVal);
++        }
++
++        profiler.PrintProfilingResult();
++
++        return true;
++    }
++
++} /* namespace app */
++} /* namespace alif */
+diff --git a/source/use_case/llm/usecase.cmake b/source/use_case/llm/usecase.cmake
+new file mode 100644
+index 0000000..ee3765f
+--- /dev/null
++++ b/source/use_case/llm/usecase.cmake
+@@ -0,0 +1,73 @@
++# This file was ported to work on Alif Semiconductor Ensemble family of devices.
++
++#  Copyright (C) 2023 Alif Semiconductor - All Rights Reserved.
++#  Use, distribution and modification of this code is permitted under the
++#  terms stated in the Alif Semiconductor Software License Agreement
++#
++#  You should have received a copy of the Alif Semiconductor Software
++#  License Agreement with this file. If not, please write to:
++#  contact@alifsemi.com, or visit: https://alifsemi.com/license
++
++#----------------------------------------------------------------------------
++#  Copyright (c) 2021 Arm Limited. All rights reserved.
++#  SPDX-License-Identifier: Apache-2.0
++#
++#  Licensed under the Apache License, Version 2.0 (the "License");
++#  you may not use this file except in compliance with the License.
++#  You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++#  Unless required by applicable law or agreed to in writing, software
++#  distributed under the License is distributed on an "AS IS" BASIS,
++#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++#  See the License for the specific language governing permissions and
++#  limitations under the License.
++#----------------------------------------------------------------------------
++# Append the API to use for this use case
++list(APPEND ${use_case}_API_LIST "llm")
++
++USER_OPTION(${use_case}_LABELS_TXT_FILE "Labels' txt file for the chosen model"
++    ${CMAKE_CURRENT_SOURCE_DIR}/resources/${use_case}/labels/labels_yolox.txt
++    FILEPATH)
++
++USER_OPTION(${use_case}_SHOW_INF_TIME "Show inference time"
++    OFF
++    BOOL)
++
++set(${use_case}_COMPILE_DEFS
++    SHOW_PROFILING=$<BOOL:${${use_case}_SHOW_PROFILING}>
++    SHOW_EXPOSURE=$<BOOL:${${use_case}_SHOW_EXPOSURE}>
++    SHOW_INF_TIME=$<BOOL:${${use_case}_SHOW_INF_TIME}>
++    SKIP_MODEL=$<BOOL:${${use_case}_SKIP_MODEL}>
++)
++
++# Generate labels file
++set(${use_case}_LABELS_CPP_FILE Labels)
++generate_labels_code(
++    INPUT           "${${use_case}_LABELS_TXT_FILE}"
++    DESTINATION_SRC ${SRC_GEN_DIR}
++    DESTINATION_HDR ${INC_GEN_DIR}
++    OUTPUT_FILENAME "${${use_case}_LABELS_CPP_FILE}"
++)
++
++USER_OPTION(${use_case}_ACTIVATION_BUF_SZ "Activation buffer size for the chosen model"
++    0x00200000
++    STRING)
++
++if (ETHOS_U_NPU_ENABLED)
++    set(DEFAULT_MODEL_PATH      ${RESOURCES_PATH}/llm/yolox_nano_ti_lite_full_integer_quant_vela_${ETHOS_U_NPU_CONFIG_ID}.tflite)
++else()
++    set(DEFAULT_MODEL_PATH      ${RESOURCES_PATH}/llm/yolox_nano_ti_lite_full_integer_quant.tflite)
++endif()
++
++USER_OPTION(${use_case}_MODEL_TFLITE_PATH "NN models file to be used in the evaluation application. Model files must be in tflite format."
++    ${DEFAULT_MODEL_PATH}
++    FILEPATH
++    )
++
++# Generate model file
++generate_tflite_code(
++    MODEL_PATH ${${use_case}_MODEL_TFLITE_PATH}
++    DESTINATION ${SRC_GEN_DIR}
++    NAMESPACE   "arm" "app" "llm")
+diff --git a/source/use_case/usecase-preset.json b/source/use_case/usecase-preset.json
+index 330fc10..52bf8c1 100644
+--- a/source/use_case/usecase-preset.json
++++ b/source/use_case/usecase-preset.json
+@@ -15,6 +15,7 @@
+                 "ethos-u-ad",
+                 "ethos-u-asr",
+                 "ethos-u-img_class",
++                "ethos-u-llm",
+                 "ethos-u-inference_runner",
+                 "ethos-u-kws_asr",
+                 "ethos-u-kws",
+-- 
+2.34.1
+
